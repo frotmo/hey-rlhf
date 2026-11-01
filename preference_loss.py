@@ -1,8 +1,7 @@
 import torch
+import torch.nn.functional as F
 
 
 def preference_loss(r_chosen, r_rejected):
-
-    return -torch.log(
-        torch.sigmoid(r_chosen - r_rejected)
-    ).mean()
+    """Bradley-Terry pairwise preference loss."""
+    return -F.logsigmoid(r_chosen - r_rejected).mean()

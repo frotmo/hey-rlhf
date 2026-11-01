@@ -1,0 +1,30 @@
+[project]
+name = "rlhf-mini-pipeline"
+version = "0.1.0"
+description = "A teaching-oriented RLHF pipeline with CPU, local GPU, and scale PPO paths."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.0",
+]
+
+[project.optional-dependencies]
+local = [
+    "accelerate>=1.15.0",
+    "datasets>=5.1.0",
+    "peft>=0.21.2",
+    "sentencepiece>=0.2.0",
+    "transformers>=5.20.2",
+    "trl>=1.16.0",
+]
+scale = [
+    "accelerate>=1.15.0",
+    "datasets>=5.1.0",
+    "sentencepiece>=0.2.0",
+    "transformers>=5.20.2",
+]
+
+[tool.uv]
+package = false
