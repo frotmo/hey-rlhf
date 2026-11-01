@@ -1,26 +1,31 @@
 # RLHF Mini Pipeline
 
-一个面向深度学习与机器学习初学者的教学级 RLHF 项目。它保留上游的纯 PyTorch
-路线，但把原本不完整的 "PPO-style" 更新补成可运行的 PPO 闭环，并加入冻结
-reference model、KL 约束、偏好奖励模型和策略对比评估。
+[English](README.md) | [中文](README_zh.md)
 
-项目分为三条路线：
+A teaching-oriented RLHF project for readers learning deep learning and machine
+learning. It keeps the upstream pure-PyTorch route, completes the original
+"PPO-style" update as a runnable PPO loop, and adds a frozen reference model,
+KL control, preference reward modeling, and policy comparison.
 
-- **CPU 算法教学版**：字符/单词级 LSTM，小数据，支持 PPO、GRPO、DPO，
-  已经完成实际测试。
-- **低显存路线**：`SmolLM2-135M-Instruct` + LoRA + 小数据切片，
-  以约 6GB 显存为目标，适合资源受限环境。
-- **高显存扩展版**：Hugging Face Transformer PPO，以约 24GB 显存为目标。
+The project has three tracks:
 
-完整开发记录、取舍、实测结果与后续建议见
-[DEVELOPMENT.md](DEVELOPMENT.md)。
+- **CPU algorithm lab:** character/word-level LSTM, toy data, and runnable PPO,
+  GRPO, and DPO implementations.
+- **Low-memory track:** `SmolLM2-135M-Instruct` with LoRA and small dataset
+  slices, targeting roughly 6GB of GPU memory.
+- **High-memory extension:** Hugging Face Transformer PPO, targeting roughly
+  24GB of GPU memory.
 
-本项目是基于原项目的教学扩展。上游来源、许可证状态和功能差异见
-[ATTRIBUTION.md](ATTRIBUTION.md)。
+See [DEVELOPMENT.md](DEVELOPMENT.md) for implementation notes and experiment
+history. See [ATTRIBUTION.md](ATTRIBUTION.md) for upstream attribution,
+licensing status, and the exact differences from the original project.
 
-## 1. 当前能力
+> This is an educational implementation, not production-grade RLHF. Toy-scale
+> rewards are not evidence of real alignment quality.
 
-小版本包含一个标准的 SFT -> Reward Model -> PPO 流程：
+## 1. What It Implements
+
+The small pipeline covers:
 
 ```text
 prompt
@@ -40,78 +45,81 @@ token reward = task reward - beta * (log pi - log pi_ref)
 GAE -> PPO clipped objective + value loss + entropy bonus
 ```
 
-关键实现：
+Key behavior:
 
-- 偏好奖励模型使用 Bradley-Terry loss：
-  `-log sigmoid(r_chosen - r_rejected)`。
-- PPO 使用旧策略采样的 `old_logprob`、new/old ratio、clip surrogate、
-  GAE、value head、entropy bonus 和梯度裁剪。
-- reference model 是 SFT 策略的冻结副本，不参与更新。
-- 每个响应 token 都有采样形式的 KL 惩罚，最后一步额外加入奖励模型分数。
-- 训练前后用同一奖励模型比较 policy 与 reference 的平均奖励、胜率和 KL。
-- DPO 直接使用 chosen/rejected 的参考策略 log-ratio，不需要 rollout 或 value。
-- GRPO 对同一 prompt 的多个响应做组内奖励标准化，不使用 value head。
+- Bradley-Terry preference loss:
+  `-log sigmoid(r_chosen - r_rejected)`.
+- PPO records old log-probabilities and uses ratios, clipped surrogates, GAE,
+  a value head, entropy regularization, and gradient clipping.
+- The reference policy is a frozen copy of the SFT policy.
+- Every generated response token can receive a sampled KL penalty; the reward
+  model score is added to the final valid token.
+- Policy and reference are compared with the same reward model before and after
+  PPO.
+- DPO uses response-only log-probability differences and needs no rollout.
+- GRPO normalizes rewards across multiple responses to the same prompt and does
+  not use a value head.
 
-这不是工业级 RLHF，不应把玩具数据上的分数当作对齐质量结论。
-
-## 2. 目录
+## 2. Repository Layout
 
 ```text
-mini_lm.py                  LSTM actor-critic 策略
-reward_model.py             序列级标量奖励模型
-preference_loss.py          Bradley-Terry 偏好损失
-tokenizer.py                单词 tokenizer、特殊 token、padding
-toy_dataset.py              SFT 与偏好数据
-checkpoints.py              统一加载 SFT 与 reward checkpoint
-train_sft.py                SFT / 初始策略训练
-train_reward_model.py       奖励模型训练与 pairwise accuracy
-ppo_step.py                 rollout、KL、GAE、PPO 更新、reference 对比
-train_ppo.py                PPO 训练入口
-grpo_step.py                GRPO 组采样、组内优势与更新
-train_grpo.py               GRPO 训练入口
-dpo_step.py                 response-only logprob 与 DPO loss
-train_dpo.py                DPO 训练入口
-configs/low_memory.json     低显存路线的模型、数据和步数预算
-pyproject.toml              项目 Python 版本、依赖和 local/scale 可选依赖
-uv.lock                     uv 解析后的完整依赖锁文件
-.python-version             固定 Python 3.12
-prepare_local_data.py       只取固定数量样本的 HF 数据准备脚本
-train_hf_local.py           低显存 DPO/GRPO LoRA 入口
-scaleup_ppo.py              未实测的 GPU Transformer 扩展入口
-evaluate_hf_policy.py       固定 held-out prompts 上的 policy/reference 对比评估
-run_mini_pipeline.py        依次运行本地三阶段
-tests/test_mini_pipeline.py 核心算法断言测试
-DEVELOPMENT.md              完整开发、验证和扩展记录
-ATTRIBUTION.md              上游归属、许可证说明和相对原项目差异
-LICENSE                     MIT 许可证
+mini_lm.py                  LSTM actor-critic policy
+reward_model.py             Sequence-level scalar reward model
+preference_loss.py          Bradley-Terry preference loss
+tokenizer.py                Word tokenizer, special tokens, padding
+toy_dataset.py              Toy SFT and preference data
+checkpoints.py              Shared checkpoint loading
+train_sft.py                SFT / initial policy training
+train_reward_model.py       Reward-model training and pairwise accuracy
+ppo_step.py                 Rollout, KL, GAE, PPO update, reference comparison
+train_ppo.py                PPO training entry point
+grpo_step.py                GRPO sampling, group advantages, update
+train_grpo.py               GRPO training entry point
+dpo_step.py                 Response-only log-probability and DPO loss
+train_dpo.py                DPO training entry point
+configs/low_memory.json     Low-memory model, data, and step budget
+pyproject.toml              Python version, dependencies, local/scale extras
+uv.lock                     Reproducible uv dependency lock
+.python-version             Python 3.12
+prepare_local_data.py       Fixed-size Hugging Face dataset slicing
+train_hf_local.py           Low-memory LoRA SFT/DPO/GRPO entry point
+scaleup_ppo.py              Hugging Face Transformer PPO extension
+evaluate_hf_policy.py       Policy/reference evaluation on fixed prompts
+evaluate_dpo_preferences.py Held-out DPO preference validation
+run_mini_pipeline.py        CPU SFT -> reward model -> PPO pipeline
+tests/                      Algorithm and evaluation tests
+DEVELOPMENT.md              Development notes and experiment history
+ATTRIBUTION.md              Upstream attribution and change summary
+LICENSE                     MIT license
 ```
 
-## 3. Python 环境与本地运行
+## 3. Python Environment
 
-项目使用 [uv](https://docs.astral.sh/uv/) 管理 Python、虚拟环境和依赖。Python
-版本固定在 `.python-version`，依赖统一定义在 `pyproject.toml`，实际安装版本由
-`uv.lock` 锁定。
+The project uses [uv](https://docs.astral.sh/uv/) for Python, virtual
+environments, and dependency management. Python is pinned in `.python-version`;
+declared dependencies live in `pyproject.toml`; resolved versions live in
+`uv.lock`.
 
-服务器尚未安装 uv 时：
+Install uv if needed:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-创建 Python 3.12 环境并安装默认的 CPU 小流程依赖：
+Create the Python 3.12 environment and install the default CPU dependencies:
 
 ```bash
 uv python install
 uv sync
 ```
 
-运行完整小流程：
+Run the complete toy pipeline:
 
 ```bash
 uv run python run_mini_pipeline.py
 ```
 
-选择本地算法：
+Select one algorithm:
 
 ```bash
 uv run python run_mini_pipeline.py --algorithm ppo
@@ -119,7 +127,7 @@ uv run python run_mini_pipeline.py --algorithm grpo
 uv run python run_mini_pipeline.py --algorithm dpo
 ```
 
-也可以分阶段运行：
+Or run the stages separately:
 
 ```bash
 uv run python train_sft.py
@@ -129,49 +137,54 @@ uv run python train_grpo.py
 uv run python train_dpo.py
 ```
 
-运行测试：
+Run the tests:
 
 ```bash
 uv run python -m unittest discover -s tests -v
 ```
 
-`uv run` 会自动使用项目 `.venv`，不需要先手工执行 `activate`。
-
-如果希望后续直接使用 `python` 命令，需要先激活 uv 创建的环境：
+`uv run` uses the project `.venv` automatically. If you prefer a direct
+`python` command, activate the environment first:
 
 ```bash
 source .venv/bin/activate
 python run_mini_pipeline.py
 ```
 
-激活只对当前终端会话有效。新开终端后需要重新执行 `source .venv/bin/activate`；
-否则 `python` 通常指向系统 Python，看不到 `.venv` 中安装的依赖。`uv sync` 不需要
-每次运行都执行，只在依赖声明或 `uv.lock` 变化、环境缺失时执行。
+Activation only applies to the current shell. A direct `python` command usually
+points to the system interpreter and cannot see packages installed inside
+`.venv`.
 
-产物默认写入 `artifacts/`：
+You do not need to run `uv sync` before every command. Run it when dependencies
+change, `uv.lock` changes, or the virtual environment is missing.
 
-- `sft_policy.pt`
-- `reward_model.pt`
-- `ppo_policy.pt`
-- `grpo_policy.pt`
-- `dpo_policy.pt`
+Default toy artifacts are written under `artifacts/`:
 
-## 4. PPO 公式
+```text
+sft_policy.pt
+reward_model.pt
+ppo_policy.pt
+grpo_policy.pt
+dpo_policy.pt
+```
 
-对一条响应轨迹，reference 提供逐 token 参考分布。KL 奖励塑形为：
+## 4. PPO Equations
+
+For one response trajectory, the reference model supplies a token-level
+reference distribution. KL reward shaping is:
 
 ```text
 token_reward_t = -beta * (log pi(a_t | s_t) - log pi_ref(a_t | s_t))
 ```
 
-最后一个有效 token 再加上奖励模型给出的序列分数。使用 GAE 得到优势：
+The reward-model score is added to the final valid token. Advantages use GAE:
 
 ```text
 delta_t = r_t + gamma * V(s_{t+1}) - V(s_t)
 A_t = delta_t + gamma * lambda * A_{t+1}
 ```
 
-PPO 的裁剪替代目标为：
+The clipped PPO surrogate is:
 
 ```text
 ratio_t = exp(log pi_new(a_t) - log pi_old(a_t))
@@ -181,24 +194,26 @@ L_policy = -mean(min(
 ))
 ```
 
-总损失还包含 value regression 与 entropy bonus。生产 RLHF 还会加入更多数据、
-奖励模型校准、长度偏置处理、分布式训练、评估集和人工审计，这里刻意没有展开。
+The total objective also contains value regression and an entropy bonus. A
+production RLHF system would additionally need more data, reward calibration,
+length-bias controls, distributed training, independent evaluation, and human
+audit.
 
-## 5. 算法模式
+## 5. Algorithm Modes
 
-| 算法 | 是否需要 reward model | 是否需要 rollout | 本地状态 |
+| Algorithm | Reward model | Rollout | Local status |
 |---|---|---|---|
-| PPO | 是 | 是，带 value head | 已实测 |
-| GRPO | 是 | 是，同 prompt 多响应 | 已实测 |
-| DPO | 否 | 否 | 已实测 |
+| PPO | Yes | Yes, with value head | Tested |
+| GRPO | Yes | Yes, multiple responses per prompt | Tested |
+| DPO | No | No | Tested |
 
-GRPO 的标准组内优势为：
+GRPO uses the standard group-relative advantage:
 
 ```text
 A_i = (reward_i - mean(group_reward)) / (std(group_reward) + eps)
 ```
 
-DPO 使用 chosen/rejected 相对 reference 的隐式奖励：
+DPO compares chosen and rejected responses through implicit rewards:
 
 ```text
 z = beta * (
@@ -208,32 +223,31 @@ z = beta * (
 L = -log sigmoid(z)
 ```
 
-本地 CPU 实测中，DPO 的 toy training margin 从 `0.0468` 上升到 `2.0200`；
-GRPO 的平均采样奖励从 `0.0518` 上升到约 `0.0618`。这仍只证明算法链路可运行，
-因为数据只有 8 条偏好对，不能证明泛化能力。
+The toy CPU experiment raises DPO margin from `0.0468` to `2.0200` and GRPO
+sampled reward from `0.0518` to about `0.0618`. These numbers only demonstrate
+that the chains run; the toy data is too small to support generalization claims.
 
-## 6. 低显存配置
+## 6. Low-Memory Configuration
 
-[configs/low_memory.json](configs/low_memory.json) 选择：
+[configs/low_memory.json](configs/low_memory.json) uses:
 
-- 基座：`HuggingFaceTB/SmolLM2-135M-Instruct`，约 134.5M 参数。
-- 训练方式：LoRA，rank 8，单样本 batch，8 步梯度累积。
-- 上下文：384 token；DPO 最大 prompt 160；GRPO 最大生成 224。
-- SFT 切片：2,000 条 `UltraChat 200k`。
-- 偏好切片：4,000 对 `UltraFeedback Binarized`。
-- GRPO prompts：最多 500 条，来自偏好训练切片。
-- 步数上限：DPO 200 step，GRPO 80 step。
-- 粗略时间预算：SFT 约 0.5 到 2 小时，DPO 约 1 到 3 小时，
-  GRPO 约 3 到 8 小时。
+- Base policy: `HuggingFaceTB/SmolLM2-135M-Instruct` (about 134.5M parameters).
+- Training: LoRA rank 8, batch size 1, gradient accumulation 8.
+- Context: 384 tokens; DPO maximum prompt 160; GRPO maximum completion 224.
+- SFT slice: 2,000 examples from `UltraChat 200k`.
+- Preference slice: 4,000 pairs from `UltraFeedback Binarized`.
+- GRPO prompts: up to 500 unique prompts from the training preference split.
+- Step limits: DPO 200, GRPO 80.
+- Rough time budget: SFT 0.5-2 hours, DPO 1-3 hours, GRPO 3-8 hours.
 
-这不是在完整数据集上训练。数据准备脚本只取配置中的固定数量样本：
+This is not full-dataset training. Prepare fixed-size slices first:
 
 ```bash
 uv sync --extra local
 uv run python prepare_local_data.py
 ```
 
-低显存 SFT/DPO/GRPO 入口：
+Run low-memory SFT, DPO, or GRPO:
 
 ```bash
 uv run python train_hf_local.py --algorithm sft
@@ -241,7 +255,7 @@ uv run python train_hf_local.py --algorithm dpo
 uv run python train_hf_local.py --algorithm grpo
 ```
 
-首次测试可临时覆盖配置中的步数：
+Smoke-test DPO with a short run and longer context:
 
 ```bash
 uv run python train_hf_local.py \
@@ -251,7 +265,7 @@ uv run python train_hf_local.py \
   --output-dir artifacts/local_dpo_smoke
 ```
 
-验证 smoke test 后，可扩大到一个中间 checkpoint：
+Then run an intermediate experiment:
 
 ```bash
 uv run python train_hf_local.py \
@@ -261,51 +275,45 @@ uv run python train_hf_local.py \
   --output-dir artifacts/local_dpo_100
 ```
 
-仓库不附带数据集、模型权重或 GPU 自动化集成测试。首次运行时建议先执行
-smoke test，确认显存、loss 和 adapter 保存正常后再跑完整配置。
+The repository does not include datasets, model weights, checkpoints, or
+automated GPU integration tests. Always start with a smoke test and verify
+memory, loss, and adapter saving before a full run.
 
-## 7. Reference Model 的作用
+## 7. Reference Model
 
-本项目的 reference model 采用工业界常见语义：对 SFT 策略做深拷贝并冻结。
-它同时承担两种职责：
+The reference model is a frozen copy of the SFT policy. It serves two roles:
 
-1. KL 锚点，防止 PPO 为追逐奖励而偏离初始语言能力太远。
-2. 对比基准，用相同奖励模型比较 policy 与 reference 的响应。
+1. A KL anchor that limits how far PPO moves from the initial language policy.
+2. A baseline evaluated with the same reward model as the policy.
 
-小版本没有额外下载 GPT-2 等语言模型，原因是不同 tokenizer 与架构会让
-教学代码复杂化。冻结 SFT 副本在算法意义上是正确的标准基线，而且没有网络依赖。
+The CPU example intentionally avoids downloading a separate language model.
+A frozen SFT copy is algorithmically valid and keeps the teaching version
+self-contained.
 
-## 8. 高显存扩展
+## 8. High-Memory Transformer Extension
 
-`scaleup_ppo.py` 将小型 PPO 扩展到 Hugging Face 因果语言模型：
+`scaleup_ppo.py` extends the small PPO path to Hugging Face causal language
+models:
 
-- 默认策略与 reference：`HuggingFaceTB/SmolLM2-135M-Instruct`
-- 默认奖励模型：`OpenAssistant/reward-model-deberta-v3-base`
-- 支持自定义 `--policy-model`、`--reward-model`、JSONL prompts 和 batch size
-- 使用 bfloat16、gradient checkpointing、GAE、KL penalty 和 PPO clipping
+- Default policy/reference: `HuggingFaceTB/SmolLM2-135M-Instruct`
+- Default reward model: `OpenAssistant/reward-model-deberta-v3-base`
+- Custom policy/reward models, JSONL prompts, and batch sizes are supported.
+- BF16, gradient checkpointing, GAE, KL penalty, and PPO clipping are used.
 
-安装扩展依赖：
+Install the extension dependencies:
 
 ```bash
 uv sync --extra scale
 ```
 
-默认让 uv 安装锁文件中的 torch，环境最可靠：
+Check that PyTorch can see CUDA:
 
 ```bash
-uv sync --extra scale
 uv run python -c \
   "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 ```
 
-只有确认 CUDA 可用后再运行训练或评估。
-
-首次在另一台机器或另一种 uv 版本上同步时，uv 可能会更新锁文件。应先提交更新后的
-`uv.lock`，确认 `uv lock --check` 通过；之后才适合在 CI 或部署命令中使用
-`--locked`。如果当前服务器的 `pyproject.toml` 和 `uv.lock` 不是同时更新，
-`uv sync --locked` 会直接拒绝执行。
-
-示例启动命令：
+Example run:
 
 ```bash
 uv run python scaleup_ppo.py \
@@ -315,19 +323,18 @@ uv run python scaleup_ppo.py \
   --output-dir artifacts/scaleup_ppo
 ```
 
-如果云镜像已经预装 GPU 版 PyTorch，并且希望复用它，不能在未验证的情况下直接
-使用 `--no-install-package torch`。先在项目 `.venv` 之外找到真正能导入 torch
-的解释器：
+If a cloud image already contains a compatible GPU PyTorch build, verify the
+exact interpreter before attempting to reuse it:
 
 ```bash
 deactivate 2>/dev/null || true
 python -c "import sys, torch; print(sys.executable); print(torch.__version__)"
 ```
 
-然后使用打印出的解释器路径重建环境：
+Then create a system-site environment with that interpreter:
 
 ```bash
-TORCH_PYTHON=/path/to/the/interpreter/that/imported/torch
+TORCH_PYTHON=/path/to/interpreter/that/imported/torch
 
 rm -rf .venv
 uv venv --system-site-packages --python "$TORCH_PYTHON"
@@ -339,58 +346,44 @@ uv run --no-sync python scaleup_ppo.py \
   --output-dir artifacts/scaleup_smoke
 ```
 
-这里的 `--no-sync` 会防止 `uv run` 重新安装锁文件中的 PyTorch、覆盖镜像预装的
-GPU 版 PyTorch。该预镜像下的后续 Python 命令也应统一使用
-`uv run --no-sync`；安装其他新依赖后，需要重新执行对应的 `uv sync`。
+`--no-install-package torch` does not make an arbitrary system installation
+visible. Only use it after confirming that the environment can import the
+intended CUDA build. If inheritance fails, let uv manage torch with
+`uv sync --locked --extra scale`.
 
-如果 `uv run --no-sync python -c "import torch"` 仍然失败，说明该解释器的
-system site-packages 无法被 venv 继承。此时不要继续使用
-`--no-install-package torch`。直接删除 `.venv` 并执行
-`uv sync --locked --extra scale`，让 uv 管理 torch。
+The repository does not include an automated GPU regression test. Validate the
+model revision, reward interface, memory footprint, generation quality, KL
+stability, and save/load behavior before a long run.
 
-不希望每次都写 `uv run --no-sync` 时，激活同一个环境后即可直接使用 `python`：
+## 9. Fixed Evaluation
 
-```bash
-source .venv/bin/activate
-python scaleup_ppo.py \
-  --iterations 1 \
-  --batch-size 1 \
-  --max-new-tokens 8 \
-  --output-dir artifacts/scaleup_smoke
-```
-
-重要：该入口**没有在本地或 GPU 上实测**。它只通过语法检查。正式使用前至少需要
-验证模型 revision、奖励模型接口、显存占用、生成质量、KL 稳定性和保存/加载。
-
-## 9. 固定评估集与算法对比
-
-`prepare_local_data.py` 会从偏好数据的 validation/test prompts 中按 hash 稳定抽取
-固定评估集，并保证与 preference train prompts 无交集。评估来源固定为前
-`eval_source_examples=4000` 条偏好数据，因此以后扩大训练切片不会改变评估集：
+`prepare_local_data.py` creates a deterministic evaluation set from the
+validation/test prompts in the preference data and excludes preference-training
+prompts. The evaluation source is pinned to the first
+`eval_source_examples=4000` preference rows, so later training-set expansion does
+not silently change the evaluation set.
 
 ```bash
 uv sync --extra scale
 uv run python prepare_local_data.py
 ```
 
-生成的文件包括：
+Generated files include:
 
 ```text
 data/low_memory/grpo_prompts.jsonl
 data/low_memory/eval_prompts.jsonl
 ```
 
-数据准备会跳过空 prompt、空回答以及 chosen/rejected 完全相同的偏好记录，并在
-输出中报告跳过数量。
-
-第一次确认评估集后，把它快照为固定版本；后续实验不要重新生成或改写这个文件：
+Empty prompts, empty responses, and identical chosen/rejected pairs are skipped.
+After confirming the evaluation set, freeze a snapshot:
 
 ```bash
 cp data/low_memory/eval_prompts.jsonl data/eval_prompts_v1.jsonl
 sha256sum data/eval_prompts_v1.jsonl
 ```
 
-先在固定评估集上比较 reference 与 PPO 输出：
+Compare reference and policy outputs on the fixed set:
 
 ```bash
 uv run python evaluate_hf_policy.py \
@@ -398,38 +391,42 @@ uv run python evaluate_hf_policy.py \
   --reference-model HuggingFaceTB/SmolLM2-135M-Instruct \
   --prompts-file data/eval_prompts_v1.jsonl \
   --limit 200 \
-  --max-new-tokens 48 \
+  --batch-size 1 \
+  --max-new-tokens 256 \
   --output-dir artifacts/evaluations/scaleup_ppo
 ```
 
-评估器使用与训练一致的 chat template 和 DeBERTa reward，并固定 greedy 解码。
-它输出：
+The evaluator uses the same chat template and reward model as training, with
+greedy decoding by default. It writes:
 
 ```text
 artifacts/evaluations/scaleup_ppo/records.jsonl
 artifacts/evaluations/scaleup_ppo/summary.json
 ```
 
-`records.jsonl` 保存每个 prompt 的 reference/policy 响应、reward、长度和 sampled KL；
-`summary.json` 汇总平均/中位 reward、逐 prompt 胜率、长度和 KL。
+Per-prompt records include both responses, rewards, reward delta, sampled KL,
+token lengths, and the prompt-file hash in the summary metadata.
 
-DPO/GRPO 保存的是 PEFT adapter，评估时需要包含 PEFT 的 local 依赖：
+For PEFT adapters, install the local extra:
 
 ```bash
 uv sync --extra local
 uv run python evaluate_hf_policy.py \
   --policy-model artifacts/local_dpo \
   --prompts-file data/eval_prompts_v1.jsonl \
+  --limit 200 \
+  --batch-size 1 \
+  --max-new-tokens 256 \
   --output-dir artifacts/evaluations/local_dpo
 ```
 
-GRPO 只需把 `--policy-model` 改为 `artifacts/local_grpo`。比较不同算法时，
-必须使用同一个 `eval_prompts.jsonl`、`--max-new-tokens`、解码设置和 reward model。
+Use the same prompt file, decoding settings, token limit, and reward model when
+comparing PPO, GRPO, and DPO.
 
-### 9.1 DPO 偏好验证
+### 9.1 DPO Preference Validation
 
-生成的回答 reward 不是 DPO 最直接的验证指标。`evaluate_dpo_preferences.py`
-直接使用 held-out preferred/rejected pairs 计算 response-only logprob：
+Generated reward is not the most direct DPO metric. Use held-out preference
+pairs and response-only log-probabilities:
 
 ```text
 chosen_reward = beta * (log pi(chosen) - log pi_ref(chosen))
@@ -439,22 +436,18 @@ accuracy = fraction(margin > 0)
 loss = -mean(log_sigmoid(margin))
 ```
 
-`pairwise_accuracy` 是把 `margin <= 0` 都视为未胜出的严格胜率。为了正确处理
-`margin == 0`，评估还会报告：
+The strict pairwise accuracy treats zero margins as non-wins. The evaluator also
+reports:
 
 ```text
-pairwise_accuracy_with_ties_half：tie 计 0.5
-pairwise_accuracy_non_tied：排除 tie 后的二分类准确率
-tie_rate：margin 为 0 的比例
+pairwise_accuracy_with_ties_half
+pairwise_accuracy_non_tied
+tie_rate
+zero_margin_count
+non_truncated metrics
 ```
 
-运行前确保 local 依赖已经安装：
-
-```bash
-uv sync --extra local
-```
-
-先评估 200 个 validation pairs：
+Run preference validation:
 
 ```bash
 uv run python evaluate_dpo_preferences.py \
@@ -467,48 +460,44 @@ uv run python evaluate_dpo_preferences.py \
   --output-dir artifacts/evaluations/dpo_preference_validation
 ```
 
-输出：
+`--beta` must match `training.dpo_beta` in the training configuration.
 
-```text
-artifacts/evaluations/dpo_preference_validation/records.jsonl
-artifacts/evaluations/dpo_preference_validation/summary.json
-```
+## 10. Known Limitations
 
-重点观察 `pairwise_accuracy`、`margin.mean`、`margin.ci95`、`dpo_loss` 和
-`truncated_rate`。`--beta` 应与训练配置中的 `training.dpo_beta` 一致。
+- The original toy set has only 6 SFT examples and 8 preference pairs.
+- The word tokenizer does not understand morphology and is not production BPE.
+- The small toy reward model is uncalibrated and vulnerable to reward hacking.
+- CPU tests validate shapes and gradients, not generalization.
+- Small preference runs can remain at chance-level pairwise accuracy.
+- The model can repeat text or exploit reward-model length/style preferences.
+- The fixed evaluations are smoke/pilot evidence, not paper-scale conclusions.
+- The full pipeline uses different parameterizations across PPO and LoRA paths;
+  algorithm comparisons must align training budget, data, and evaluation.
 
-## 10. 已知限制
+## 11. Suggested Next Steps
 
-- 仅 6 条 SFT 样本和 8 条偏好对，模型很容易过拟合。
-- 单词 tokenizer 不懂形态变化，也没有 BPE 的生产效率。
-- 奖励模型是未校准的小型 LSTM，存在 reward hacking 空间。
-- CPU 测试只证明训练链路和数值形状正确，不代表泛化能力。
-- 当前小版本采用全 batch PPO，便于阅读；大规模版本才需要 minibatch。
-- 奖励分数绝对值没有可解释意义，应主要观察相对 margin、KL 和独立评估。
+1. Freeze the evaluation prompt set and report confidence intervals.
+2. Run a longer DPO experiment at a context length that avoids truncation.
+3. Evaluate intermediate checkpoints, not only the final adapter.
+4. Add task-specific checks for factual correctness, format, and repetition.
+5. Compare DPO, GRPO, and PPO under aligned data and training budgets.
+6. Add reward calibration, pairwise accuracy, KL tracking, and human spot checks.
 
-## 11. 建议的后续方向
+## References
 
-建议先讨论并选择一项，而不是同时扩大所有部分：
+- Ouyang et al. (2022), *Training language models to follow instructions with
+  human feedback*
+- Christiano et al. (2017), *Deep Reinforcement Learning from Human Preferences*
+- Schulman et al. (2017), *Proximal Policy Optimization Algorithms*
+- Rafailov et al. (2023), *Direct Preference Optimization*
 
-1. 加入独立偏好测试集和长度偏置分析，先确认奖励模型是否学到了期望行为。
-2. 把高显存路线的最小实验固定为单卡：135M policy + 独立 reward，
-   记录峰值显存和每秒生成 token。
-3. 增加 LoRA，以便在单卡上尝试更大策略模型，但要单独评估 reference 与
-   adapter 的保存、加载和 KL 计算。
-4. 在真实小切片上比较 DPO、GRPO、PPO 的训练时间、KL、独立奖励和响应长度。
-5. 增加 reward model calibration、pairwise accuracy、KL 和人工抽检，
-   不再只看训练 reward。
+## Attribution and License
 
-## 12. 参考资料
+Upstream project:
+[Iamyulx/rlhf-mini-implementation](https://github.com/Iamyulx/rlhf-mini-implementation).
 
-- Ouyang et al. (2022), Training language models to follow instructions with
-  human feedback
-- Christiano et al. (2017), Deep Reinforcement Learning from Human Preferences
-- Schulman et al. (2017), Proximal Policy Optimization Algorithms
-- Rafailov et al. (2023), Direct Preference Optimization
+This repository is a substantially modified educational derivative. See
+[ATTRIBUTION.md](ATTRIBUTION.md) for the upstream commit, licensing status, and
+detailed differences.
 
-原项目：[Iamyulx/rlhf-mini-implementation](https://github.com/Iamyulx/rlhf-mini-implementation)
-
-## License
-
-MIT. See [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md).
+Released under the MIT License. See [LICENSE](LICENSE).
